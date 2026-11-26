@@ -666,6 +666,19 @@ qualification during v6.0.
 | verification_gaps | 06/06-VERIFICATION.md | gaps_found | 2026-11-15 | v1.0 |
 
 
+## CI/CD Efficiency Record — 2026-11-25 (PR #9)
+
+- **Owner authorization:** One additional hosted CI run is authorized after the measured budget update. The run keeps every check and its selection intact. If this hosted run is red, stop and report the cause; another hosted attempt needs new authorization. This appends current authority and does not rewrite earlier stop records.
+- **Hosted observation:** GitHub run `45717026635` at head `f791aac8034057896322376d18316104f2863a31` was cancelled at existing job timeouts before its slow lanes completed. The fast title, hygiene, and routing work passed; no assertion failure caused those cancellations.
+- **Measured local result:** `cmake --workflow --preset ci` passed on Apple Silicon with AppleClang 21: 1,277 registered tests, one allowed owner-local skip, 340.32 s CTest wall and 352.45 s complete workflow wall. The ignored local xPack toolchain was present, so this run exercised diagnostic registrations that hosted `ci` may leave optional; dedicated hosted diagnostic jobs remain separate evidence.
+- **Measured local result:** `sh scripts/linux-lane.sh ci gcc` passed in the pinned Ubuntu 26.04 container on the host's native ARM64 architecture: 23 s setup, 343 s workflow, 366.64 s total. This exercises Linux/GCC behavior but is not an x86-64 runner measurement.
+- **Measured local result:** `sh scripts/linux-lane.sh asan clang` passed in the same pinned container: 24 s setup, 189 s workflow, 214.92 s total. Linux ASan/UBSan coverage and its inventory check passed; the local host architecture differs from hosted x86-64.
+- **Measured local result:** On Darwin ARM64 with xPack 15.2.1-1.1, `diagnostics-arm` passed 551/551 tests in 168.35 s end to end (111.66 s CTest); `diagnostics-thumb` passed 293/293 in 95.84 s (66.57 s CTest). The toolchain fetch/verification took 36 s before either workflow.
+- **Measured local result:** The standalone job-budget/source/collector controls passed in 25.50 s. Workflow preflight and hygiene also passed; hygiene reported only the expected owner-local logo skip.
+- **Implementation:** The profile timing validator now parses each timing row once; the measured `timer.costs.contract` case fell from 91.72 s to 36.33 s without reducing its controls. The Phase 10 ordering gate now requires the CLI checks only in the CI lane where they are registered; the Linux ASan selection/order control then passed in isolation and the full ASan workflow passed.
+- **Policy update:** Keep fast jobs at 180 s (3 min); builds at 480 s (8 min); ASan and ARM diagnostics at 360 s (6 min); Thumb diagnostics at 240 s (4 min). These are maximum wait budgets derived from complete local runs and the prior cutoff trace, not changes to test coverage. `cmake/CiJobBudgets.json` remains the seconds authority, cross-checked against workflow minutes, preflight, collector, and refusal controls.
+- **Resource cleanup:** The task-owned Linux lane and ASan debug containers and temporary source snapshots were removed. The pinned Ubuntu image existed before this work and remains as a shared cache.
+
 ## Session Continuity
 
 Last session: 2026-11-25T14:40:08.658Z

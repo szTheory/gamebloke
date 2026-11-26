@@ -106,6 +106,13 @@ and the inventory check, and a stale `junit.xml` is deleted only at configure.
 
 ## CI and release turnaround
 
+The approved per-job ceilings are maintained in `cmake/CiJobBudgets.json`. The exact
+workflow matrix, second-based authority, CMake preflight, final proof collector, and
+negative controls are bound together; update them in one change. A larger timeout changes
+the maximum allowed wait, not test selection or coverage. Base changes on completed
+step-level timings and the last unfinished step from cutoff runs, then measure configure,
+build, test, packaging, and artifact work separately.
+
 Before a long hosted CI or release check, run the matching canonical local command and
 cheap consistency checks first. Use `act` only when it reproduces the workflow path closely
 enough to save iteration time; it does not replace host-specific or hosted evidence. After

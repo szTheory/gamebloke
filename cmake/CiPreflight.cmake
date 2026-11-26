@@ -74,18 +74,20 @@ function(gbl_ci_workflow source workflow)
     message(FATAL_ERROR "ci-preflight: workflow-job-set-mismatch")
   endif()
   set(expected_rows
-    "build|runner=ubuntu-26.04,cc=gcc,id=GNU,minutes=4"
-    "build|runner=macos-26,cc=cc,id=AppleClang,minutes=5"
-    "diagnostics|runner=ubuntu-26.04,host=linux-x64,group=arm,cc=gcc,id=GNU,minutes=3"
-    "diagnostics|runner=macos-26,host=darwin-arm64,group=arm,cc=cc,id=AppleClang,minutes=5"
-    "diagnostics|runner=ubuntu-26.04,host=linux-x64,group=thumb,cc=gcc,id=GNU,minutes=3"
-    "diagnostics|runner=macos-26,host=darwin-arm64,group=thumb,cc=cc,id=AppleClang,minutes=3")
+    "build|runner=ubuntu-26.04,cc=gcc,id=GNU,minutes=8"
+    "build|runner=macos-26,cc=cc,id=AppleClang,minutes=8"
+    "diagnostics|runner=ubuntu-26.04,host=linux-x64,group=arm,cc=gcc,id=GNU,minutes=6"
+    "diagnostics|runner=macos-26,host=darwin-arm64,group=arm,cc=cc,id=AppleClang,minutes=6"
+    "diagnostics|runner=ubuntu-26.04,host=linux-x64,group=thumb,cc=gcc,id=GNU,minutes=4"
+    "diagnostics|runner=macos-26,host=darwin-arm64,group=thumb,cc=cc,id=AppleClang,minutes=4")
   if(NOT rows STREQUAL expected_rows)
     message(FATAL_ERROR "ci-preflight: workflow-budget-matrix-mismatch")
   endif()
   foreach(job IN LISTS expected_jobs)
     set(expected 3)
-    if(job MATCHES "^(build|diagnostics)$")
+    if(job STREQUAL "asan")
+      set(expected 6)
+    elseif(job MATCHES "^(build|diagnostics)$")
       set(expected [=[${{ matrix.minutes }}]=])
     endif()
     if(NOT "${timeout_${job}}" STREQUAL expected)
