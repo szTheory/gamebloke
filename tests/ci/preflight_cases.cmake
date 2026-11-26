@@ -20,10 +20,48 @@ function(control label before after reason)
   endif()
   message(STATUS "ci-preflight-controls: ${label} refused")
 endfunction()
-control(missing-budget "            minutes: 8\n" "" "workflow-budget-matrix-mismatch")
+control(missing-budget "            minutes: 14\n" "" "workflow-budget-matrix-mismatch")
 control(raised-linux-native "id: GNU\n            minutes: 8" "id: GNU\n            minutes: 9" "workflow-budget-matrix-mismatch")
 control(old-linux-native "id: GNU\n            minutes: 8" "id: GNU\n            minutes: 7" "workflow-budget-matrix-mismatch")
 control(raised-linux-diagnostic "id: GNU\n            minutes: 6" "id: GNU\n            minutes: 7" "workflow-budget-matrix-mismatch")
+control(raised-macos-native "id: AppleClang\n            minutes: 14" "id: AppleClang\n            minutes: 15" "workflow-budget-matrix-mismatch")
+control(old-macos-native "id: AppleClang\n            minutes: 14" "id: AppleClang\n            minutes: 8" "workflow-budget-matrix-mismatch")
+control(raised-macos-arm [=[host: darwin-arm64
+            group: arm
+            cc: cc
+            id: AppleClang
+            minutes: 8]=] [=[host: darwin-arm64
+            group: arm
+            cc: cc
+            id: AppleClang
+            minutes: 9]=] "workflow-budget-matrix-mismatch")
+control(old-macos-arm [=[host: darwin-arm64
+            group: arm
+            cc: cc
+            id: AppleClang
+            minutes: 8]=] [=[host: darwin-arm64
+            group: arm
+            cc: cc
+            id: AppleClang
+            minutes: 6]=] "workflow-budget-matrix-mismatch")
+control(raised-macos-thumb [=[host: darwin-arm64
+            group: thumb
+            cc: cc
+            id: AppleClang
+            minutes: 6]=] [=[host: darwin-arm64
+            group: thumb
+            cc: cc
+            id: AppleClang
+            minutes: 7]=] "workflow-budget-matrix-mismatch")
+control(old-macos-thumb [=[host: darwin-arm64
+            group: thumb
+            cc: cc
+            id: AppleClang
+            minutes: 6]=] [=[host: darwin-arm64
+            group: thumb
+            cc: cc
+            id: AppleClang
+            minutes: 4]=] "workflow-budget-matrix-mismatch")
 control(swapped-group "group: arm" "group: thumb" "workflow-budget-matrix-mismatch")
 control(wrong-platform "host: darwin-arm64" "host: linux-x64" "workflow-budget-matrix-mismatch")
 control(renamed-build "name: build (" "name: renamed (" "workflow-job-name-mismatch")

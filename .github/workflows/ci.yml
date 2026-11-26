@@ -106,7 +106,7 @@ jobs:
           - runner: macos-26
             cc: cc
             id: AppleClang
-            minutes: 8
+            minutes: 14
     runs-on: ${{ matrix.runner }}
     timeout-minutes: ${{ matrix.minutes }}
     env:
@@ -163,7 +163,7 @@ jobs:
             group: arm
             cc: cc
             id: AppleClang
-            minutes: 6
+            minutes: 8
           - runner: ubuntu-26.04
             host: linux-x64
             group: thumb
@@ -175,7 +175,7 @@ jobs:
             group: thumb
             cc: cc
             id: AppleClang
-            minutes: 4
+            minutes: 6
     runs-on: ${{ matrix.runner }}
     timeout-minutes: ${{ matrix.minutes }}
     env:

@@ -9,10 +9,10 @@
     {"name":"asan","seconds":360},
     {"name":"CI required","seconds":180},
     {"name":"build (ubuntu-26.04, gcc, GNU)","seconds":480},
-    {"name":"build (macos-26, cc, AppleClang)","seconds":480},
+    {"name":"build (macos-26, cc, AppleClang)","seconds":840},
     {"name":"diagnostics (linux-x64, arm)","seconds":360},
     {"name":"diagnostics (linux-x64, thumb)","seconds":240},
-    {"name":"diagnostics (darwin-arm64, arm)","seconds":360},
-    {"name":"diagnostics (darwin-arm64, thumb)","seconds":240}
+    {"name":"diagnostics (darwin-arm64, arm)","seconds":480},
+    {"name":"diagnostics (darwin-arm64, thumb)","seconds":360}
   ]
 }

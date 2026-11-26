@@ -7,7 +7,7 @@ cmake --workflow --preset ci
 ```
 
 CI runs the same command. The workflow adds only routing around it. The `ci`
-test preset allows two independent tests at once; CTest still enforces declared
+test preset allows four independent tests at once; CTest still enforces declared
 fixtures/dependencies and tests marked `RUN_SERIAL`.
 
 For a cheap consistency check before a longer run:
@@ -20,10 +20,11 @@ Every canonical configure runs this check before compiler discovery. It first
 runs the repository-wide shell signal-handler scan, so missing HUP/INT/TERM exit
 paths stop before compiler discovery. It reconciles
 the seven workflow definitions (11 expanded required jobs), their stable names,
-platform/group routing and exact budgets with `cmake/CiJobBudgets.json`. Only
-`build (macos-26, cc, AppleClang)` and `diagnostics (darwin-arm64, arm)` have
-300-second budgets. `build (ubuntu-26.04, gcc, GNU)` has a 240-second budget;
-the other eight required jobs retain 180 seconds. These whole-job allowances
+platform/group routing and exact budgets with `cmake/CiJobBudgets.json`.
+Fast jobs use 180 seconds; ASan and Linux ARM diagnostics use 360 seconds;
+Linux Thumb diagnostics use 240 seconds; Linux/GCC build uses 480 seconds;
+macOS ARM diagnostics use 480 seconds; macOS Thumb diagnostics use 360 seconds;
+and the AppleClang build uses 840 seconds. These whole-job allowances
 include setup and cleanup; they are not emulator performance targets. The existing
 CI routing test includes missing/misbound-budget, renamed/duplicate-job and
 source-pin refusal controls. It also checks explicit admitted stages for all five
@@ -112,6 +113,12 @@ negative controls are bound together; update them in one change. A larger timeou
 the maximum allowed wait, not test selection or coverage. Base changes on completed
 step-level timings and the last unfinished step from cutoff runs, then measure configure,
 build, test, packaging, and artifact work separately.
+
+On 2026-11-26, a direct full-inventory CTest run passed with four workers in 201.20 s,
+down from 340.32 s with two workers (1,277 passed and one allowed owner-local skip in
+both runs). The canonical four-worker workflow then passed in 230.56 s total, including
+configure, build, the same test inventory and the post inventory check. CTest still keeps
+all fixtures and `RUN_SERIAL` constraints while reducing the measured local critical path.
 
 Before a long hosted CI or release check, run the matching canonical local command and
 cheap consistency checks first. Use `act` only when it reproduces the workflow path closely

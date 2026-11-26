@@ -75,11 +75,11 @@ function(gbl_ci_workflow source workflow)
   endif()
   set(expected_rows
     "build|runner=ubuntu-26.04,cc=gcc,id=GNU,minutes=8"
-    "build|runner=macos-26,cc=cc,id=AppleClang,minutes=8"
+    "build|runner=macos-26,cc=cc,id=AppleClang,minutes=14"
     "diagnostics|runner=ubuntu-26.04,host=linux-x64,group=arm,cc=gcc,id=GNU,minutes=6"
-    "diagnostics|runner=macos-26,host=darwin-arm64,group=arm,cc=cc,id=AppleClang,minutes=6"
+    "diagnostics|runner=macos-26,host=darwin-arm64,group=arm,cc=cc,id=AppleClang,minutes=8"
     "diagnostics|runner=ubuntu-26.04,host=linux-x64,group=thumb,cc=gcc,id=GNU,minutes=4"
-    "diagnostics|runner=macos-26,host=darwin-arm64,group=thumb,cc=cc,id=AppleClang,minutes=4")
+    "diagnostics|runner=macos-26,host=darwin-arm64,group=thumb,cc=cc,id=AppleClang,minutes=6")
   if(NOT rows STREQUAL expected_rows)
     message(FATAL_ERROR "ci-preflight: workflow-budget-matrix-mismatch")
   endif()

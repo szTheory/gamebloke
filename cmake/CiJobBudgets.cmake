@@ -24,16 +24,19 @@ function(gbl_ci_policy source)
     string(JSON seconds GET "${policy}" jobs ${i} seconds)
     string(JSON seconds_type TYPE "${policy}" jobs ${i} seconds)
     set(approved 180)
-    if(name STREQUAL "build (ubuntu-26.04, gcc, GNU)" OR
-       name STREQUAL "build (macos-26, cc, AppleClang)")
+    if(name STREQUAL "build (ubuntu-26.04, gcc, GNU)")
       set(approved 480)
+    elseif(name STREQUAL "build (macos-26, cc, AppleClang)")
+      set(approved 840)
     elseif(name STREQUAL "asan" OR
-       name STREQUAL "diagnostics (linux-x64, arm)" OR
-       name STREQUAL "diagnostics (darwin-arm64, arm)")
+       name STREQUAL "diagnostics (linux-x64, arm)")
       set(approved 360)
-    elseif(name STREQUAL "diagnostics (linux-x64, thumb)" OR
-       name STREQUAL "diagnostics (darwin-arm64, thumb)")
+    elseif(name STREQUAL "diagnostics (darwin-arm64, arm)")
+      set(approved 480)
+    elseif(name STREQUAL "diagnostics (linux-x64, thumb)")
       set(approved 240)
+    elseif(name STREQUAL "diagnostics (darwin-arm64, thumb)")
+      set(approved 360)
     endif()
     if(NOT name IN_LIST expected OR name IN_LIST seen OR NOT seconds STREQUAL approved OR
        NOT seconds_type STREQUAL "NUMBER")

@@ -106,7 +106,7 @@
         "outputJUnitFile": "${sourceDir}/build/ci/junit.xml"
       },
       "filter": { "exclude": { "label": "^post$" } },
-      "execution": { "jobs": 2, "noTestsAction": "error", "stopOnFailure": true }
+      "execution": { "jobs": 4, "noTestsAction": "error", "stopOnFailure": true }
     },
     {
       "name": "ci-post",
